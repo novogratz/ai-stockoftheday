@@ -2,7 +2,9 @@
 
 Momentum stock analysis + Telegram reports for day trading. Analysis only — it tells you **what** to buy and **when**; it never places orders.
 
-Scans ~350 liquid US tickers (NYSE/NASDAQ), scores each with a 14-signal composite, and posts the best setups to Telegram before the open and every 30 minutes during the session.
+Scans the **full US listing** (~6,000 NYSE/NASDAQ/NYSE American common stocks, penny stocks included), scores each with a 14-signal composite, and posts the best setups to Telegram before the open and every 30 minutes during the session.
+
+The universe comes from the official NASDAQ Trader symbol directory (ETFs, warrants, preferreds, and test issues filtered out), cached for 7 days in `data/us_universe.json`. Pass `--core` to any command to scan only the ~450 hardcoded liquid names instead. Price floor is $0.30, so anything liquid enough (≥100k avg daily volume) competes.
 
 ## The 14-signal engine (0–~140 pts)
 
@@ -40,6 +42,16 @@ Synthesized from IBKR, Minervini, CANSLIM, and LangChain quant strategies:
 
 Every pick ships with fixed day-trade guardrails: **+2.5% target, −1.25% stop**.
 
+## Paper portfolio ($10k simulation)
+
+Every reported pick is recorded in a local ledger (`portfolio/ledger.json`) — one row per ticker per day: date, buy price (live price when first reported), official close, day return. A simulated portfolio starts at **$10,000**, goes all-in on the first pick of each day (the ⭐ stock of the day), and sells at the close, compounding daily.
+
+- Every 30-min Telegram update ends with today's position P&L and the all-time balance
+- After the close (~16:05 ET) the run loop settles the day and sends a 🏁 recap with every pick's return
+- `stockoftheday portfolio` prints the stats any time; `stockoftheday settle` back-fills missed days
+
+No real money moves — it's a months-long paper test of whether the picks have edge. Back up `portfolio/ledger.json` if you care about the history (it's gitignored).
+
 ## Install
 
 ```
@@ -61,9 +73,12 @@ TELEGRAM_CHAT_ID=@yourchannel
 stockoftheday test-telegram          # verify the bot can post
 stockoftheday scan --top 10          # print ranked picks in the terminal
 stockoftheday scan --fast            # same, skipping slow HTTP enrichment
+stockoftheday scan --core            # only the ~450 hardcoded liquid names
 stockoftheday morning --notify       # send the morning game plan now
 stockoftheday intraday --notify      # send an intraday watchlist update now
-stockoftheday run                    # always-on scheduler (morning + every 30 min)
+stockoftheday run                    # always-on scheduler (morning + every 30 min + EOD recap)
+stockoftheday portfolio              # paper portfolio stats
+stockoftheday settle                 # back-fill closes for unsettled ledger picks
 ```
 
 ## Test

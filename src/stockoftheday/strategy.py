@@ -70,12 +70,13 @@ class SmartStrategy:
     Confidence: HIGH ≥80 | MEDIUM ≥45 | LOW <45
     """
 
-    MIN_PRICE = 1.00
+    MIN_PRICE = 0.30        # penny stocks welcome — volume filters do the quality gating
     MAX_PRICE = 1000.00
     MIN_AVG_VOL = 100_000
     MIN_YDAY_VOL = 50_000
     MIN_PCT_CHG = 0.5
     SCAN_LIMIT = 200
+    GAP_ENRICH_LIMIT = 150  # live-gap fetch is 1 HTTP call per symbol — cap it
 
     def __init__(
         self,
@@ -113,11 +114,14 @@ class SmartStrategy:
             enriched.append((score, snap, sig))
         combined = sorted(enriched + scored[50:], key=lambda x: x[0], reverse=True)
 
-        # Live/pre-market gap enrichment — parallel 5m prepost history fetches
-        gaps = _fetch_gaps([(snap.symbol, snap.last_close) for _, snap, _ in combined])
+        # Live/pre-market gap enrichment — parallel 5m prepost history fetches,
+        # top candidates only (one HTTP call each)
+        head = combined[: self.GAP_ENRICH_LIMIT]
+        tail = combined[self.GAP_ENRICH_LIMIT :]
+        gaps = _fetch_gaps([(snap.symbol, snap.last_close) for _, snap, _ in head])
 
-        gap_adjusted: list = []
-        for score, snap, _sig in combined:
+        gap_adjusted: list = [(score, snap, 0.0) for score, snap, _sig in tail]
+        for score, snap, _sig in head:
             gap_pct = gaps.get(snap.symbol)
             if gap_pct is not None:
                 if gap_pct >= 5.0:

@@ -1,26 +1,30 @@
 ---
 name: add-ticker
-description: Add or remove tickers from the scan universe. Use when the user says "add TSLA to the watchlist", "scan crypto miners too", "remove delisted tickers", or wants a different universe.
+description: Manage the scan universe. Use when the user says "add TSLA to the watchlist", "why isn't SYM being scanned?", "refresh the universe", or wants to adjust which stocks get scanned.
 ---
 
 # Manage the scan universe
 
-The universe is `WATCHLIST` in `src/stockoftheday/universe.py` (~350 hardcoded liquid NYSE/NASDAQ tickers, grouped by theme with comment headers).
+Two tiers in `src/stockoftheday/universe.py`:
 
-## Adding tickers
+- **Full universe (default)** — `load_universe()` fetches every NYSE/NASDAQ/NYSE American common stock (~6,000 symbols, penny stocks included) from the NASDAQ Trader symbol directory, cached 7 days in `data/us_universe.json`. Nothing to add manually — new listings appear on the next cache refresh.
+- **Core list (`--core`)** — the hardcoded `WATCHLIST` (~450 liquid names), used as offline fallback and for fast scans.
 
-1. Add the symbol to the matching themed section of `WATCHLIST` (create a new section comment if none fits). US listings only — no exchange suffixes like `.TO`; the strategy assumes NYSE/NASDAQ hours and SPY-relative strength.
-2. Also add it to `SECTOR_MAP` in the same file, mapped to the closest sector ETF (XLK tech / XLF financials / XLE energy / XLV health / XLI industrials / XLY consumer). Unmapped tickers just miss the 0-5 pt sector bonus — fine for oddballs, but map it when obvious.
-3. Sanity-check the ticker resolves: `python -c "import yfinance as yf; print(yf.Ticker('SYM').history(period='5d').shape)"` — a (0, x) shape means bad/delisted symbol.
-4. Delete `data/snapshot_cache.json` so the next scan fetches the new symbol.
+## "Why isn't SYM being scanned / picked?"
 
-## Removing tickers
+Check in this order:
+1. In the universe? `python -c "from stockoftheday.universe import load_universe; print('SYM' in load_universe())"`
+   - Missing usually means: ETF, warrant/unit/preferred (filtered by name), dotted class share (BRK.A), or listed after the cache was built → `load_universe(refresh=True)`.
+2. Passes hard filters? Price $0.30–$1000, 20d avg volume ≥ 100k, yesterday volume ≥ 50k, yesterday ≥ +0.5%, close above EMA20 (`SmartStrategy._base_ok`). Most "missing" penny stocks fail the volume bar — that's intentional.
+3. Earnings within 3 days → hard-skipped by the blackout filter.
 
-Grep first — a symbol can appear in both `WATCHLIST` and `SECTOR_MAP`; remove it from both. Repeated "possibly delisted" warnings in scan output are the usual removal candidates.
+## Refreshing the universe
 
-## Duplicates
+Delete `data/us_universe.json` or call `load_universe(refresh=True)`. The parser filters live in `parse_symbol_directory` — offline-tested in `tests/test_universe.py`; if changing a filter, extend the sample fixtures there.
 
-`WATCHLIST` has historically contained duplicates (harmless — prefetch dedupes via the cache dict, but they inflate the count). If touching the list anyway, check with:
+## Core list edits
+
+Add the symbol to the themed section of `WATCHLIST` **and** to `SECTOR_MAP` (closest sector ETF: XLK/XLF/XLE/XLV/XLI/XLY — unmapped just misses the 0-5 pt sector bonus). US listings only, no exchange suffixes. Sanity-check it resolves:
 ```
-python -c "from stockoftheday.universe import WATCHLIST as W; import collections; print([s for s,c in collections.Counter(W).items() if c>1])"
+python -c "import yfinance as yf; print(yf.Ticker('SYM').history(period='5d').shape)"
 ```

@@ -1,6 +1,111 @@
-"""US stock universe (~350 liquid NYSE/NASDAQ tickers) and sector map."""
+"""US stock universe and sector map.
+
+Two tiers:
+- load_universe() — the full NYSE/NASDAQ common-stock listing (~7-9k symbols,
+  penny stocks included), fetched from the official NASDAQ Trader symbol
+  directory and cached for 7 days. Falls back to WATCHLIST offline.
+- WATCHLIST — hardcoded ~450 liquid names, used as the fallback and via --core.
+"""
 
 from __future__ import annotations
+
+import json
+import re
+import time
+import urllib.request
+from pathlib import Path
+
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+UNIVERSE_CACHE = DATA_DIR / "us_universe.json"
+UNIVERSE_TTL = 7 * 86400
+
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+
+# Plain 1-5 letter symbols only — drops preferreds/units/classes like "AAC.U",
+# "BRK.A", "ABC$D" which yfinance can't resolve under these names anyway.
+_SYMBOL_RE = re.compile(r"^[A-Z]{1,5}$")
+# Non-common-stock instruments identified by security name
+_EXCLUDE_NAME_RE = re.compile(
+    r"warrant|right(s)? |unit(s)?[ ,]|preferred|preference|depositary|"
+    r"% notes|notes due|bond|debenture|trust preferred",
+    re.IGNORECASE,
+)
+# otherlisted.txt exchanges: N = NYSE, A = NYSE American, P = NYSE Arca
+_ALLOWED_EXCHANGES = {"N", "A", "P"}
+
+
+def parse_symbol_directory(nasdaq_text: str, other_text: str) -> list[str]:
+    """Parse NASDAQ Trader symbol directory files into a clean common-stock list."""
+    symbols: set[str] = set()
+
+    # nasdaqlisted.txt: Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot|ETF|NextShares
+    for line in nasdaq_text.splitlines()[1:]:
+        parts = line.split("|")
+        if len(parts) < 7:
+            continue
+        sym, name, _mkt, test, _fin, _lot, etf = parts[:7]
+        if test != "N" or etf == "Y":
+            continue
+        if not _SYMBOL_RE.match(sym) or _EXCLUDE_NAME_RE.search(name):
+            continue
+        symbols.add(sym)
+
+    # otherlisted.txt: ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot|Test Issue|NASDAQ Symbol
+    for line in other_text.splitlines()[1:]:
+        parts = line.split("|")
+        if len(parts) < 7:
+            continue
+        sym, name, exchange, _cqs, etf, _lot, test = parts[:7]
+        if test != "N" or etf == "Y" or exchange not in _ALLOWED_EXCHANGES:
+            continue
+        if not _SYMBOL_RE.match(sym) or _EXCLUDE_NAME_RE.search(name):
+            continue
+        symbols.add(sym)
+
+    return sorted(symbols)
+
+
+def fetch_us_universe(timeout: float = 30.0) -> list[str]:
+    """Download and parse the full US listing. Raises on network failure."""
+    def _get(url: str) -> str:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+
+    return parse_symbol_directory(_get(NASDAQ_LISTED_URL), _get(OTHER_LISTED_URL))
+
+
+def load_universe(refresh: bool = False) -> list[str]:
+    """Full US universe with a 7-day disk cache; falls back to WATCHLIST offline."""
+    if not refresh and UNIVERSE_CACHE.exists():
+        try:
+            if time.time() - UNIVERSE_CACHE.stat().st_mtime < UNIVERSE_TTL:
+                raw = json.loads(UNIVERSE_CACHE.read_text(encoding="utf-8"))
+                syms = raw.get("symbols", [])
+                if len(syms) > 1000:
+                    return syms
+        except Exception:
+            pass
+
+    try:
+        symbols = sorted(set(fetch_us_universe()) | set(WATCHLIST))
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        UNIVERSE_CACHE.write_text(
+            json.dumps({"fetched": time.time(), "symbols": symbols}), encoding="utf-8"
+        )
+        return symbols
+    except Exception:
+        # Stale cache beats the small fallback list
+        try:
+            raw = json.loads(UNIVERSE_CACHE.read_text(encoding="utf-8"))
+            syms = raw.get("symbols", [])
+            if len(syms) > 1000:
+                return syms
+        except Exception:
+            pass
+        return WATCHLIST
+
 
 WATCHLIST: list[str] = [
     # ── Mega-cap Tech ─────────────────────────────────────────────────────────
