@@ -37,6 +37,15 @@ Pipeline: `universe` → `market_data` → `signals` + `context` → `strategy` 
 
 `data/` (caches) and `.env` are gitignored — never commit them.
 
+## Project skills
+
+`.claude/skills/` holds repo-specific skills — prefer them over improvising:
+
+- `scan` — run a scan and interpret picks for the user (confidence tiers, entry plan, guardrails)
+- `add-signal` — the correct path for new/tuned scoring signals (signals.py vs strategy.py split, point budgets, offline tests, doc sync)
+- `add-ticker` — universe/SECTOR_MAP edits and delisted-ticker cleanup
+- `telegram-debug` — bot setup and delivery-failure diagnosis
+
 ## Testing conventions
 
 Tests are fully offline: synthetic OHLCV DataFrames for `signals`/`market_data`, a `FakeMarketData` + hand-built `MarketContext` injected into `SmartStrategy` with `enrich=False`, and direct string assertions on report output. Any new scoring or formatting logic should stay testable without network access.
