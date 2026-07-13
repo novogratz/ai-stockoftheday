@@ -121,11 +121,9 @@ class MarketContext:
             pass
 
         try:
-            vix_raw = yf.download("^VIX", period="5d", interval="1d",
-                                  auto_adjust=False, progress=False, timeout=10)
+            vix_raw = yf.Ticker("^VIX").history(period="5d", interval="1d")
             if not vix_raw.empty:
-                vix_close = vix_raw["Close"] if "Close" in vix_raw.columns else vix_raw.iloc[:, 0]
-                vix_level = float(vix_close.dropna().iloc[-1])
+                vix_level = float(vix_raw["Close"].dropna().iloc[-1])
         except Exception:
             pass
 
