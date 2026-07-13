@@ -1,0 +1,23 @@
+[project]
+name = "stockoftheday"
+version = "1.0.0"
+description = "Momentum stock analysis + Telegram day-trading reports (no order execution)"
+requires-python = ">=3.10"
+dependencies = [
+    "yfinance>=0.2.55",
+    "pandas>=2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+stockoftheday = "stockoftheday.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
