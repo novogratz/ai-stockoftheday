@@ -10,7 +10,7 @@ from datetime import datetime
 from .context import MarketContext, get_futures_bias
 from .market_data import MarketData
 from .report import build_intraday_report, build_morning_report
-from .schedule import is_market_session, is_morning_window, now_et
+from .schedule import MARKET_OPEN, is_market_session, is_morning_window, is_weekday, now_et
 from .strategy import Pick, SmartStrategy
 from .telegram import TelegramConfigError, send_message
 from .universe import WATCHLIST
@@ -85,12 +85,29 @@ def cmd_test_telegram(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     """
     Always-on loop (ET clock, weekdays only):
-      - 8:45-9:30  → one morning game plan
-      - 9:30-16:00 → intraday watchlist every 30 min
+      - on startup  → one report immediately (intraday if the market is open, game plan otherwise)
+      - 8:45-9:30   → one morning game plan
+      - 9:30-16:00  → intraday watchlist every 30 min
     """
-    print("Scheduler running (Ctrl-C to stop). Morning plan 8:45 ET, intraday updates every 30 min 9:30-16:00.")
+    print("Scheduler running (Ctrl-C to stop). Startup report now, morning plan 8:45 ET, intraday every 30 min 9:30-16:00.")
     last_morning_date: str | None = None
     last_intraday = 0.0
+
+    # Startup report: the in-session case is covered by the first loop tick
+    # (last_intraday == 0), so only the out-of-session case needs handling here.
+    start = now_et()
+    if not is_market_session(start):
+        try:
+            print(f"[{start:%H:%M}] startup — building stock-of-the-day game plan...")
+            picks, strategy = _run_scan(md=MarketData())
+            bias, detail = get_futures_bias()
+            text = build_morning_report(picks, strategy.ctx, bias, detail, top=args.top)
+            _notify(text)
+            print(f"[{start:%H:%M}] startup game plan sent.")
+            if is_weekday(start) and start.time() < MARKET_OPEN:
+                last_morning_date = start.date().isoformat()  # don't resend at 8:45
+        except Exception as exc:
+            print(f"[{start:%H:%M}] startup report failed: {exc}", file=sys.stderr)
 
     while True:
         now = now_et()
